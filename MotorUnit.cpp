@@ -46,8 +46,8 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
 void MotorUnit::zero(){
     angleTotal = 0;
     
-    angleCurrent  = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
-    anglePrevious = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
+    angleCurrent  = angleSensor->getRawRotation();
+    anglePrevious = angleSensor->getRawRotation();
 }
 
 /*!
@@ -349,7 +349,6 @@ bool MotorUnit::retract(double targetLength){
     
     //Pull until taught
     while(true){
-        updateEncoderPosition();
         
         //When taught
         if(motor->readCurrent() > 4){
