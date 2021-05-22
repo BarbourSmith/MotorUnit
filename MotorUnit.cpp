@@ -325,7 +325,7 @@ bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, doubl
         }
         
         //If we haven't moved in more time than the threshold then return
-        if(millis()-*timeLastMoved > 3000){
+        if(millis()-*timeLastMoved > 5000){
             return false;
         }
     }
@@ -372,7 +372,16 @@ bool MotorUnit::retract(double targetLength){
                 double lastPosition = getPosition();
                 double amtToMove = 0.1;
                 while(getPosition() < targetLength){
-                    comply(&timeLastMoved, &lastPosition, &amtToMove);  //Comply updates the encoder position
+                    
+                if(!comply(&timeLastMoved, &lastPosition, &amtToMove)){  //Check for timeout
+                    //Comply updates the encoder position and does the actual moving
+                    
+                    //Stope and return
+                    setTarget(getPosition());
+                    motor->stop();
+                    
+                    return false;
+                }
                     
                     // Delay without blocking
                     unsigned long time = millis();
