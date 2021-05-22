@@ -42,9 +42,6 @@ public:
     void stop();
     int recomputePID();
     void updateEncoderPosition();
-    long angleTotal = 0;
-    long angleCurrent  = 0;
-    long anglePrevious = 0;
 
 private:
 
@@ -65,6 +62,10 @@ private:
     double currentState = 0.0;
     double setpoint = 0.0;
     double errorDist = 0.0;
+    
+    long angleTotal = 0;
+    long angleCurrent  = 0;
+    long anglePrevious = 0;
 
     double mampsCurrent  = 0.0;
     pid_mode controlMode = DISTANCE;

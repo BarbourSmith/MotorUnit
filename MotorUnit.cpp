@@ -211,9 +211,7 @@ int MotorUnit::setPosition(double newPosition){
     angleCurrent  = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
     anglePrevious = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
     
-    angleTotal = (newPosition/_mmPerRevolution)*360.0;
-    Serial.println("Position set");
-    Serial.println(angleTotal);
+    angleTotal = newPosition*16384;
 }
 
 /*!
@@ -248,9 +246,7 @@ int MotorUnit::recomputePID(){
  */
 double MotorUnit::getError(){
     
-    double positionMM = (angleTotal/360.0)*_mmPerRevolution;
-    
-    double errorDist = setpoint - positionMM;
+    double errorDist = setpoint - getPosition();
     
     return errorDist;
     
