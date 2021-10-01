@@ -23,7 +23,8 @@ public:
                esp_adc_cal_characteristics_t *cal,
                byte angleCS,
                double mmPerRev,
-               double desiredAccuracy);
+               double desiredAccuracy,
+               void (*webPrint) (double arg1));
     std::unique_ptr<MiniPID> pid;
     std::unique_ptr<DRV8873LED> motor;
     std::unique_ptr<AS5048A> angleSensor;
@@ -34,7 +35,7 @@ public:
     int setPosition(double newPosition);
     double getError();
     bool retract(double targetLength);
-    bool comply(unsigned long *timeLastMoved, double *lastPosition, double *amtToMove);
+    bool comply(unsigned long *timeLastMoved, double *lastPosition, double *amtToMove, double maxSpeed);
     double getTarget();
     void repeatabilityTest();
     double getCurrent();
@@ -42,6 +43,7 @@ public:
     void stop();
     int recomputePID();
     void updateEncoderPosition();
+    void linearize(double *lastAngle, unsigned long *lastTime, int *transitionTime);
 
 private:
 
@@ -69,6 +71,11 @@ private:
 
     double mampsCurrent  = 0.0;
     pid_mode controlMode = DISTANCE;
+    
+    int _stallThreshold = 20;
+    int _stallCurrent = 9;
+    int _stallCount = 0;
+    void (*_webPrint) (double arg1);
 
 };
 

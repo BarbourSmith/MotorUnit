@@ -28,7 +28,8 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
                esp_adc_cal_characteristics_t *cal,
                byte angleCS,
                double mmPerRev,
-               double desiredAccuracy){
+               double desiredAccuracy,
+               void (*webPrint) (double arg1)){
     _mmPerRevolution = mmPerRev;
     accuracy = desiredAccuracy;
     pid.reset(new MiniPID(p,i,d));
@@ -36,6 +37,7 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
     motor.reset(new DRV8873LED(tlc, forwardPin, backwardPin, readbackPin, senseResistor, cal));
     angleSensor.reset(new AS5048A(angleCS));
     angleSensor->init();
+    _webPrint = webPrint;
     
     zero();
 }
@@ -236,6 +238,18 @@ int MotorUnit::recomputePID(){
     
     updateEncoderPosition();
     
+    //Read the motor current and check for stalls
+    if(getCurrent() > _stallCurrent){
+        _stallCount = _stallCount + 1;
+    }
+    else{
+        _stallCount = 0;
+    }
+        
+    if(_stallCount > _stallThreshold){
+        _webPrint(getCurrent());
+    }
+    
     int commandSpeed = pid->getOutput(getPosition(),setpoint);
     
     motor->runAtPWM(commandSpeed);
@@ -294,34 +308,39 @@ void MotorUnit::repeatabilityTest(){
 /*!
  *  @brief  Sets the motor to comply with how it is being pulled
  */
-bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, double *amtToMove){
+bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, double *amtToMove, double maxSpeed){
     
     //Update position and PID loop
     recomputePID();
     
     //If we've moved any, then drive the motor outwards to extend the belt
-    float distMoved = getPosition() - *lastPosition;
-    if( distMoved > 0){
+    float positionNow = getPosition();
+    float distMoved = positionNow - *lastPosition;
+    
+    if( distMoved > .01){
         //Increment the target
-        setTarget(getPosition() + *amtToMove);
+        setTarget(positionNow + *amtToMove);
         
-        *amtToMove = *amtToMove + 0.02;
+        *amtToMove = *amtToMove + 0.1;
+        
+        *amtToMove = min(*amtToMove, maxSpeed);
         
         //Reset the last moved counter
         *timeLastMoved = millis();
-        *lastPosition = getPosition();
+        
+        *lastPosition = positionNow;
+        
     }else{
-        //Don't move
         
         //Prevent creep if the position is slightly overshot and there is no pulling force
         if(getTarget() > getPosition()){
             setTarget(getPosition());
         }
-        *amtToMove = 0;
+        *amtToMove = *amtToMove/2;  //Spool down...this leaves some slack in the cable
         
         //Don't allow position to go too negative which makes it hard to start again
         if(distMoved < -0.05){
-            *lastPosition = getPosition() + 0.05;
+            *lastPosition = positionNow + 0.05;
         }
         
         //If we haven't moved in more time than the threshold then return
@@ -334,11 +353,14 @@ bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, doubl
 }
 
 /*!
- *  @brief  Fully retracts this axis and zeros it out
+ *  @brief  Fully retracts this axis and zeros it out or if it is already retracted extends it to the targetLength
  */
 bool MotorUnit::retract(double targetLength){
     
-    motor->runAtPWM(-40000);
+    int currentThreshold = 12;
+    
+    //Start pulling
+    motor->fullIn();
     
     //Add a delay to wait for the inrush current to pass
     unsigned long time = millis();
@@ -351,19 +373,13 @@ bool MotorUnit::retract(double targetLength){
     while(true){
         
         //When taught
-        if(motor->readCurrent() > 4){
-            Serial.println("Motor position at retract: ");
-            Serial.println(getPosition());
+        if(motor->readCurrent() > currentThreshold){
             motor->stop();
             zero();
             
+            //If we hit the current limit immediately because there wasn't any slack we will extend
             elapsedTime = millis()-time;
-            
-            //If we hit the current limit immediately because there wasn't any slack
             if(elapsedTime < 500){
-                
-                Serial.println("Extending to");
-                Serial.println(targetLength);
                 
                 //Increment the target out to get things started
                 setTarget(getPosition() + 2.0);
@@ -371,23 +387,31 @@ bool MotorUnit::retract(double targetLength){
                 unsigned long timeLastMoved = millis();
                 double lastPosition = getPosition();
                 double amtToMove = 0.1;
+                
+                unsigned long lastTime = micros();
+                double lastAngle = 150.0;
+                int transitionTime = 0;
                 while(getPosition() < targetLength){
-                    
-                if(!comply(&timeLastMoved, &lastPosition, &amtToMove)){  //Check for timeout
-                    //Comply updates the encoder position and does the actual moving
-                    
-                    //Stope and return
-                    setTarget(getPosition());
-                    motor->stop();
-                    
-                    return false;
-                }
+                    //Check for timeout
+                    if(!comply(&timeLastMoved, &lastPosition, &amtToMove, 100)){//Comply updates the encoder position and does the actual moving
+                        
+                        //Stop and return
+                        setTarget(getPosition());
+                        motor->stop();
+                        
+                        return false;
+                    }
                     
                     // Delay without blocking
                     unsigned long time = millis();
                     unsigned long elapsedTime = millis()-time;
-                    while(elapsedTime < 10){
+                    while(elapsedTime < 50){
                         elapsedTime = millis()-time;
+                        
+                        //Do linearizion if we are at constant speed
+                        // if(amtToMove > 10){
+                            // linearize(&lastAngle, &lastTime, &transitionTime);
+                        // }
                     }
                 }
                 
@@ -401,10 +425,6 @@ bool MotorUnit::retract(double targetLength){
                 }
                 
                 motor->stop();
-                
-                Serial.println("Got to");
-                Serial.println(getPosition());
-                
                 return true;
             }
             else{
@@ -412,6 +432,35 @@ bool MotorUnit::retract(double targetLength){
             }
         }
     }
+}
+
+/*!
+ *  @brief  Linearizes the internal encoder
+ */
+void MotorUnit::linearize(double *lastAngle, unsigned long *lastTime, int *transitionTime){
+    
+    double currentAngle = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
+    
+    if(*lastAngle > 200.0 && currentAngle < 100.0){
+        *transitionTime = micros() - *lastTime;
+        *lastTime = micros();
+    }
+    
+    if(*transitionTime > 200){
+        double expectedAngle = 360.0*((double)(micros() - *lastTime) / (double) *transitionTime);
+        
+        Serial.print(" * ");
+        Serial.print(currentAngle);
+        Serial.print(", ");
+        Serial.print(expectedAngle);
+        Serial.print(", ");
+        Serial.print(micros() - *lastTime);
+        // Serial.print(", ");
+        // Serial.print(currentAngle - expectedAngle);
+        Serial.println(" ");
+    }
+    
+    *lastAngle = currentAngle;
 }
 
 
