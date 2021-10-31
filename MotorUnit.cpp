@@ -224,6 +224,13 @@ void MotorUnit::stop(){
 }
 
 /*!
+ *  @brief  Runs the motor out at full speed
+ */
+void MotorUnit::fullOut(){
+    motor->fullOut();
+}
+
+/*!
  *  @brief  Reads the encoder value and updates it's position
  */
 void MotorUnit::updateEncoderPosition(){
@@ -239,16 +246,16 @@ int MotorUnit::recomputePID(){
     updateEncoderPosition();
     
     //Read the motor current and check for stalls
-    if(getCurrent() > _stallCurrent){
+    double currentNow = getCurrent();
+    if(currentNow > _stallCurrent){
         _stallCount = _stallCount + 1;
     }
     else{
         _stallCount = 0;
     }
-        
-    if(_stallCount > _stallThreshold){
-        _webPrint(getCurrent());
-    }
+    // if(_stallCount > _stallThreshold){
+        // _webPrint(currentNow);
+    // }
     
     int commandSpeed = pid->getOutput(getPosition(),setpoint);
     
@@ -306,6 +313,19 @@ void MotorUnit::repeatabilityTest(){
 }
 
 /*!
+ *  @brief  Runs the motor to extend for a little bit to put some slack into the coiled belt. Used to make it easier to extend.
+ */
+void MotorUnit::decompressBelt(){
+    unsigned long time = millis();
+    unsigned long elapsedTime = millis()-time;
+    while(elapsedTime < 500){
+        elapsedTime = millis()-time;
+        motor->fullOut();
+        updateEncoderPosition();
+    }
+}
+
+/*!
  *  @brief  Sets the motor to comply with how it is being pulled
  */
 bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, double *amtToMove, double maxSpeed){
@@ -357,7 +377,7 @@ bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, doubl
  */
 bool MotorUnit::retract(double targetLength){
     
-    int currentThreshold = 12;
+    int currentThreshold = 18;
     
     //Start pulling
     motor->fullIn();
@@ -367,22 +387,25 @@ bool MotorUnit::retract(double targetLength){
     unsigned long elapsedTime = millis()-time;
     while(elapsedTime < 100){
         elapsedTime = millis()-time;
+        updateEncoderPosition();
     }
     
     //Pull until taught
     while(true){
         
+        updateEncoderPosition();
         //When taught
         if(motor->readCurrent() > currentThreshold){
             motor->stop();
+            _webPrint(getPosition());
             zero();
             
             //If we hit the current limit immediately because there wasn't any slack we will extend
             elapsedTime = millis()-time;
             if(elapsedTime < 500){
                 
-                //Increment the target out to get things started
-                setTarget(getPosition() + 2.0);
+                //Extend some belt to get things started
+                decompressBelt();
                 
                 unsigned long timeLastMoved = millis();
                 double lastPosition = getPosition();

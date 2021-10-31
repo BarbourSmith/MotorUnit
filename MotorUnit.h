@@ -44,6 +44,8 @@ public:
     int recomputePID();
     void updateEncoderPosition();
     void linearize(double *lastAngle, unsigned long *lastTime, int *transitionTime);
+    void decompressBelt();
+    void fullOut();
 
 private:
 
@@ -72,8 +74,8 @@ private:
     double mampsCurrent  = 0.0;
     pid_mode controlMode = DISTANCE;
     
-    int _stallThreshold = 20;
-    int _stallCurrent = 9;
+    int _stallThreshold = 20; //The number of times in a row needed to trigger a warning
+    int _stallCurrent = 26;  //The current threshold needed to count
     int _stallCount = 0;
     void (*_webPrint) (double arg1);
 
