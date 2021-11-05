@@ -15,8 +15,6 @@
  *  @param  backwardPin Output pin number for the TLC59711. If this pin is at
  *          max output and the other pin is at 0 the motor turns backward
  *  @param  readbackPin ESP32 adc_channel_t pin number for current readback
- *  @param  senseResistor Value in Ohms of the sense resistor for this channel
- *  @param  cal ESP32 adc calibration results for more accurate readings
  *  @param  angleCS ESP32 pin for the chip select of the angle sensor
  *
  */
@@ -24,17 +22,16 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
                uint8_t forwardPin,
                uint8_t backwardPin,
                adc1_channel_t readbackPin,
-               double senseResistor,
-               esp_adc_cal_characteristics_t *cal,
                byte angleCS,
-               double mmPerRev,
-               double desiredAccuracy,
                void (*webPrint) (double arg1)){
-    _mmPerRevolution = mmPerRev;
-    accuracy = desiredAccuracy;
-    pid.reset(new MiniPID(p,i,d));
-    pid->setOutputLimits(-65535,65535);
-    motor.reset(new DRV8873LED(tlc, forwardPin, backwardPin, readbackPin, senseResistor, cal));
+    _mmPerRevolution = 44;
+    positionPID.reset(new MiniPID(p,i,d));
+    positionPID->setOutputLimits(-35,35);
+
+    velocityPID.reset(new MiniPID(pv,iv,dv));
+    velocityPID->setOutputLimits(-65534,65534);
+
+    motor.reset(new DRV8873LED(tlc, forwardPin, backwardPin, readbackPin));
     angleSensor.reset(new AS5048A(angleCS));
     angleSensor->init();
     _webPrint = webPrint;
@@ -42,15 +39,8 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
     zero();
 }
 
-/*!
- *  @brief  Resets the axis position to zero
- */
-void MotorUnit::zero(){
-    angleTotal = 0;
-    
-    angleCurrent  = angleSensor->getRawRotation();
-    anglePrevious = angleSensor->getRawRotation();
-}
+//---------------------Functions related to testing the motor unit--------------------------------------------------
+
 
 /*!
  *  @brief  Tests the function of the encoder
@@ -177,6 +167,20 @@ int MotorUnit::test(){
     
 }
 
+
+//---------------------Functions related to the motor unit's position interface-------------------------------------
+
+
+/*!
+ *  @brief  Resets the axis position to zero
+ */
+void MotorUnit::zero(){
+    angleTotal = 0;
+    
+    angleCurrent  = angleSensor->getRawRotation();
+    anglePrevious = angleSensor->getRawRotation();
+}
+
 /*!
  *  @brief  Sets the target location
  */
@@ -189,6 +193,17 @@ int MotorUnit::setTarget(double newTarget){
  */
 double MotorUnit::getTarget(){
     return setpoint;
+}
+
+/*!
+ *  @brief  Sets the position of the cable
+ */
+int MotorUnit::setPosition(double newPosition){
+    
+    angleCurrent  = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
+    anglePrevious = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
+    
+    angleTotal = newPosition*16384;
 }
 
 /*!
@@ -206,14 +221,14 @@ double MotorUnit::getCurrent(){
 }
 
 /*!
- *  @brief  Sets the position of the cable
+ *  @brief  Computes and returns the error in the axis positioning
  */
-int MotorUnit::setPosition(double newPosition){
+double MotorUnit::getError(){
     
-    angleCurrent  = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
-    anglePrevious = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
+    double errorDist = setpoint - getPosition();
     
-    angleTotal = newPosition*16384;
+    return errorDist;
+    
 }
 
 /*!
@@ -224,27 +239,56 @@ void MotorUnit::stop(){
 }
 
 /*!
- *  @brief  Runs the motor out at full speed
+ *  @brief  Runs the motor out at full speed...where is this used? Why is it not symetric with a fullIn() option?
  */
 void MotorUnit::fullOut(){
     motor->fullOut();
 }
 
+
+//---------------------Functions related to the motor unit's velocity interface-------------------------------------
+
+
+void MotorUnit::setVelocityTarget(double newVelocity){
+    velocitySetpoint = newVelocity;
+}
+
+double MotorUnit::getVelocity(){
+    return velocity;
+}
+
+//---------------------Functions related to maintaining the PID controllers-----------------------------------------
+
+
+
 /*!
- *  @brief  Reads the encoder value and updates it's position
+ *  @brief  Reads the encoder value and updates it's position and measures the velocity since the last call
  */
 void MotorUnit::updateEncoderPosition(){
+    long oldAngleTotal = angleTotal;
+
     angleCurrent = angleSensor->getRawRotation();
     angleSensor->AbsoluteAngleRotation(&angleTotal, &angleCurrent, &anglePrevious);
+
+    unsigned long timeNow = micros();
+    double elapsedTime = timeNow - timeLastEncoderRead;
+    timeLastEncoderRead = timeNow;
+
+    //This filters the velocity because it can be quite noisy due to mechanical issues and time quantization
+    double instantVelocity = (-1.0*(((oldAngleTotal/16384.0) - (angleTotal/16384.0))/(elapsedTime/60000000)));
+    double alpha = .1;
+    velocity = (alpha * instantVelocity) + ((1.0 - alpha) * velocity);
+    
 }
 
 /*!
  *  @brief  Recomputes the PID and drives the output
  */
-int MotorUnit::recomputePID(){
+void MotorUnit::recomputePID(){
     
     updateEncoderPosition();
     
+
     //Read the motor current and check for stalls
     double currentNow = getCurrent();
     if(currentNow > _stallCurrent){
@@ -257,21 +301,86 @@ int MotorUnit::recomputePID(){
         // _webPrint(currentNow);
     // }
     
-    int commandSpeed = pid->getOutput(getPosition(),setpoint);
     
-    motor->runAtPWM(commandSpeed);
+    velocitySetpoint = positionPID->getOutput(getPosition(),setpoint);
+
+
+    int commandPWM = velocityPID->getOutput(velocity,velocitySetpoint);
+    
+    motor->runAtPWM(commandPWM);
 }
 
-/*!
- *  @brief  Computes and returns the error in the axis positioning
- */
-double MotorUnit::getError(){
-    
-    double errorDist = setpoint - getPosition();
-    
-    return errorDist;
-    
+int MotorUnit::removeDeadband(int commandPWM){
+    if(commandPWM != 0){
+
+        if(commandPWM > 0){
+            int deadBand = 4000;
+            int max = 65535;
+            float scaleFactor = float(max-deadBand)/float(max);
+
+            int scaledPWM = scaleFactor*float(commandPWM) + deadBand;
+            
+            //Make sure full range is possible for steady state off
+            if(scaledPWM > max - 10){
+                scaledPWM = max;
+            }
+
+            return scaledPWM;
+        }
+        else{
+            int deadBand = -32000;
+            int max = -65535;
+            float scaleFactor = float(max-deadBand)/float(max);
+
+            int scaledPWM = scaleFactor*float(commandPWM) + deadBand;
+            
+            //Make sure full range is possible for steady state off
+            if(scaledPWM < max + 10){
+                scaledPWM = max;
+            }
+
+            return scaledPWM;
+        }
+
+    }
+    return 0; //Return zero when commanded 0
 }
+
+int MotorUnit::recomputeVelocityPID(){
+    updateEncoderPosition();
+    
+    int commandPWM = velocityPID->getOutput(velocity,velocitySetpoint);
+
+    // Serial.println("-------");
+
+    // Serial.println(velocityPID->getOutput(-29.3,-5));
+    // Serial.println(velocityPID->getOutput(-35.52,5));
+    // Serial.println(velocityPID->getOutput(-20,-10));
+    // Serial.println(velocityPID->getOutput(-20,10));
+    // Serial.println(velocityPID->getOutput(60,10));
+
+    // Serial.println(velocityPID->getOutput(-40,-10));
+    // Serial.println(velocityPID->getOutput(-30,-10));
+    // Serial.println(velocityPID->getOutput(0,-10));
+    // Serial.println(velocityPID->getOutput(20,-10));
+    // Serial.println(velocityPID->getOutput(60,-10));
+
+    // Serial.println(velocitySetpoint);
+    // Serial.println(velocity);
+    // Serial.println(commandPWM);
+    
+    // Serial.println("Remove deadband testing: ");
+    // Serial.println(removeDeadband(0));
+    // Serial.println(removeDeadband(65535));
+    // Serial.println(removeDeadband(-65535));
+    // Serial.println(removeDeadband(100));
+    // Serial.println(removeDeadband(-100));
+
+    motor->runAtPWM(removeDeadband(commandPWM));
+    return commandPWM;
+}
+
+//---------------------Functions related to extending the axis and the calibration process--------------------------
 
 /*!
  *  @brief  Sets the motor to comply with how it is being pulled
@@ -430,11 +539,6 @@ bool MotorUnit::retract(double targetLength){
                     unsigned long elapsedTime = millis()-time;
                     while(elapsedTime < 50){
                         elapsedTime = millis()-time;
-                        
-                        //Do linearizion if we are at constant speed
-                        // if(amtToMove > 10){
-                            // linearize(&lastAngle, &lastTime, &transitionTime);
-                        // }
                     }
                 }
                 
@@ -457,34 +561,6 @@ bool MotorUnit::retract(double targetLength){
     }
 }
 
-/*!
- *  @brief  Linearizes the internal encoder
- */
-void MotorUnit::linearize(double *lastAngle, unsigned long *lastTime, int *transitionTime){
-    
-    double currentAngle = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
-    
-    if(*lastAngle > 200.0 && currentAngle < 100.0){
-        *transitionTime = micros() - *lastTime;
-        *lastTime = micros();
-    }
-    
-    if(*transitionTime > 200){
-        double expectedAngle = 360.0*((double)(micros() - *lastTime) / (double) *transitionTime);
-        
-        Serial.print(" * ");
-        Serial.print(currentAngle);
-        Serial.print(", ");
-        Serial.print(expectedAngle);
-        Serial.print(", ");
-        Serial.print(micros() - *lastTime);
-        // Serial.print(", ");
-        // Serial.print(currentAngle - expectedAngle);
-        Serial.println(" ");
-    }
-    
-    *lastAngle = currentAngle;
-}
 
 
 

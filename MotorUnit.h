@@ -11,7 +11,6 @@
 #include <DRV8873LED.h>
 #include <AS5048A.h>
 
-enum pid_mode {REVOLUTIONS, CURRENT, DISTANCE, SPEED, MAX = SPEED};
 class MotorUnit{
 
 public:
@@ -19,13 +18,10 @@ public:
                uint8_t forwardPin,
                uint8_t backwardPin,
                adc1_channel_t readbackPin,
-               double senseResistor,
-               esp_adc_cal_characteristics_t *cal,
                byte angleCS,
-               double mmPerRev,
-               double desiredAccuracy,
                void (*webPrint) (double arg1));
-    std::unique_ptr<MiniPID> pid;
+    std::unique_ptr<MiniPID> positionPID;
+    std::unique_ptr<MiniPID> velocityPID;
     std::unique_ptr<DRV8873LED> motor;
     std::unique_ptr<AS5048A> angleSensor;
     void zero();
@@ -41,11 +37,13 @@ public:
     double getCurrent();
     double getPosition();
     void stop();
-    int recomputePID();
+    void recomputePID();
+    int  recomputeVelocityPID();
     void updateEncoderPosition();
-    void linearize(double *lastAngle, unsigned long *lastTime, int *transitionTime);
     void decompressBelt();
     void fullOut();
+    void setVelocityTarget(double newVelocity);
+    double getVelocity();
 
 private:
 
@@ -53,14 +51,16 @@ private:
     double lastInterval = 0.001;
     unsigned long lastUpdate = millis();
 
-    double p = 10000;
+    double p = 10;
     double i = 0;
-    double d = 10000;
+    double d = 0;
+
+
+    double pv = 3000;
+    double iv = 0;
+    double dv = 5000;
 
     bool disabled = false;
-    bool inRegulation = false;
-
-    double accuracy = 0.05; // Accuracy in mm to set in regulation flag
 
     int output = 0;
     double currentState = 0.0;
@@ -71,13 +71,15 @@ private:
     long angleCurrent  = 0;
     long anglePrevious = 0;
 
-    double mampsCurrent  = 0.0;
-    pid_mode controlMode = DISTANCE;
+    unsigned long timeLastEncoderRead = 0; //In microseconds
+    double velocity = 0;
+    double velocitySetpoint = 0;
     
     int _stallThreshold = 20; //The number of times in a row needed to trigger a warning
     int _stallCurrent = 26;  //The current threshold needed to count
     int _stallCount = 0;
     void (*_webPrint) (double arg1);
+    int removeDeadband(int commandPWM);
 
 };
 
