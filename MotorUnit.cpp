@@ -26,7 +26,7 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
                void (*webPrint) (double arg1)){
     _mmPerRevolution = 44;
     positionPID.reset(new MiniPID(p,i,d));
-    positionPID->setOutputLimits(-35,35);
+    positionPID->setOutputLimits(-50,50);
 
     velocityPID.reset(new MiniPID(pv,iv,dv));
     velocityPID->setOutputLimits(-65534,65534);
@@ -239,7 +239,7 @@ void MotorUnit::stop(){
 }
 
 /*!
- *  @brief  Runs the motor out at full speed...where is this used? Why is it not symetric with a fullIn() option?
+ *  @brief  Runs the motor out at full speed...where is this used? Why is it not symmetric with a fullIn() option?
  */
 void MotorUnit::fullOut(){
     motor->fullOut();
@@ -247,7 +247,7 @@ void MotorUnit::fullOut(){
 
 
 //---------------------Functions related to the motor unit's velocity interface-------------------------------------
-
+//Negative velocity is when the belt is moving in
 
 void MotorUnit::setVelocityTarget(double newVelocity){
     velocitySetpoint = newVelocity;
@@ -314,7 +314,7 @@ int MotorUnit::removeDeadband(int commandPWM){
     if(commandPWM != 0){
 
         if(commandPWM > 0){
-            int deadBand = 4000;
+            int deadBand = 7000;
             int max = 65535;
             float scaleFactor = float(max-deadBand)/float(max);
 
@@ -328,7 +328,7 @@ int MotorUnit::removeDeadband(int commandPWM){
             return scaledPWM;
         }
         else{
-            int deadBand = -32000;
+            int deadBand = -15000;
             int max = -65535;
             float scaleFactor = float(max-deadBand)/float(max);
 
@@ -353,28 +353,8 @@ int MotorUnit::recomputeVelocityPID(){
 
     // Serial.println("-------");
 
-    // Serial.println(velocityPID->getOutput(-29.3,-5));
-    // Serial.println(velocityPID->getOutput(-35.52,5));
-    // Serial.println(velocityPID->getOutput(-20,-10));
-    // Serial.println(velocityPID->getOutput(-20,10));
-    // Serial.println(velocityPID->getOutput(60,10));
-
-    // Serial.println(velocityPID->getOutput(-40,-10));
-    // Serial.println(velocityPID->getOutput(-30,-10));
+    // Serial.println(velocityPID->getOutput(0,10));
     // Serial.println(velocityPID->getOutput(0,-10));
-    // Serial.println(velocityPID->getOutput(20,-10));
-    // Serial.println(velocityPID->getOutput(60,-10));
-
-    // Serial.println(velocitySetpoint);
-    // Serial.println(velocity);
-    // Serial.println(commandPWM);
-    
-    // Serial.println("Remove deadband testing: ");
-    // Serial.println(removeDeadband(0));
-    // Serial.println(removeDeadband(65535));
-    // Serial.println(removeDeadband(-65535));
-    // Serial.println(removeDeadband(100));
-    // Serial.println(removeDeadband(-100));
 
     motor->runAtPWM(removeDeadband(commandPWM));
     return commandPWM;

@@ -51,14 +51,14 @@ private:
     double lastInterval = 0.001;
     unsigned long lastUpdate = millis();
 
-    double p = 10;
-    double i = 0;
-    double d = 0;
+    double p = 0;  //10
+    double i = 0;   //0
+    double d = 0;  //10
 
 
-    double pv = 3000;
-    double iv = 0;
-    double dv = 5000;
+    double pv = 1500; //3000
+    double iv = 40;    //0
+    double dv = 5000; //5000
 
     bool disabled = false;
 
