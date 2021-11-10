@@ -51,7 +51,7 @@ private:
     double lastInterval = 0.001;
     unsigned long lastUpdate = millis();
 
-    double p = 0;  //10
+    double p = 10;  //10
     double i = 0;   //0
     double d = 0;  //10
 

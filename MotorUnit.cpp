@@ -26,7 +26,7 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
                void (*webPrint) (double arg1)){
     _mmPerRevolution = 44;
     positionPID.reset(new MiniPID(p,i,d));
-    positionPID->setOutputLimits(-50,50);
+    positionPID->setOutputLimits(-65,65);
 
     velocityPID.reset(new MiniPID(pv,iv,dv));
     velocityPID->setOutputLimits(-65534,65534);
