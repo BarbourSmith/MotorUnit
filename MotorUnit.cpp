@@ -314,7 +314,7 @@ int MotorUnit::removeDeadband(int commandPWM){
     if(commandPWM != 0){
 
         if(commandPWM > 0){
-            int deadBand = 7000;
+            int deadBand = 3000;
             int max = 65535;
             float scaleFactor = float(max-deadBand)/float(max);
 
@@ -328,7 +328,7 @@ int MotorUnit::removeDeadband(int commandPWM){
             return scaledPWM;
         }
         else{
-            int deadBand = -15000;
+            int deadBand = -12000;
             int max = -65535;
             float scaleFactor = float(max-deadBand)/float(max);
 
@@ -426,11 +426,11 @@ bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, doubl
     float positionNow = getPosition();
     float distMoved = positionNow - *lastPosition;
     
-    if( distMoved > .01){
+    if( distMoved > .02){
         //Increment the target
         setTarget(positionNow + *amtToMove);
         
-        *amtToMove = *amtToMove + 0.1;
+        *amtToMove = *amtToMove + 1;
         
         *amtToMove = min(*amtToMove, maxSpeed);
         

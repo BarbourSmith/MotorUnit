@@ -51,14 +51,14 @@ private:
     double lastInterval = 0.001;
     unsigned long lastUpdate = millis();
 
-    double p = 10;  //10
-    double i = 0;   //0
-    double d = 0;  //10
+    double p = 15;  //15 These are the new motor tuning values
+    double i = .01;   //0.01
+    double d = 100;  //100
 
 
-    double pv = 1500; //3000
-    double iv = 40;    //0
-    double dv = 5000; //5000
+    double pv = 700; //700
+    double iv = 10;    //10
+    double dv = 1500; //1500
 
     bool disabled = false;
 
