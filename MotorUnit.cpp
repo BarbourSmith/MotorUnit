@@ -15,8 +15,6 @@
  *  @param  backwardPin Output pin number for the TLC59711. If this pin is at
  *          max output and the other pin is at 0 the motor turns backward
  *  @param  readbackPin ESP32 adc_channel_t pin number for current readback
- *  @param  senseResistor Value in Ohms of the sense resistor for this channel
- *  @param  cal ESP32 adc calibration results for more accurate readings
  *  @param  angleCS ESP32 pin for the chip select of the angle sensor
  *
  */
@@ -24,17 +22,13 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
                uint8_t forwardPin,
                uint8_t backwardPin,
                adc1_channel_t readbackPin,
-               double senseResistor,
-               esp_adc_cal_characteristics_t *cal,
                byte angleCS,
-               double mmPerRev,
-               double desiredAccuracy,
                void (*webPrint) (double arg1)){
-    _mmPerRevolution = mmPerRev;
-    accuracy = desiredAccuracy;
-    pid.reset(new MiniPID(p,i,d));
-    pid->setOutputLimits(-65535,65535);
-    motor.reset(new DRV8873LED(tlc, forwardPin, backwardPin, readbackPin, senseResistor, cal));
+    _mmPerRevolution = 44;
+    positionPID.reset(new MiniPID(p,i,d));
+    positionPID->setOutputLimits(-6553,6553);
+
+    motor.reset(new DRV8873LED(tlc, forwardPin, backwardPin, readbackPin));
     angleSensor.reset(new AS5048A(angleCS));
     angleSensor->init();
     _webPrint = webPrint;
@@ -42,15 +36,8 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
     zero();
 }
 
-/*!
- *  @brief  Resets the axis position to zero
- */
-void MotorUnit::zero(){
-    angleTotal = 0;
-    
-    angleCurrent  = angleSensor->getRawRotation();
-    anglePrevious = angleSensor->getRawRotation();
-}
+//---------------------Functions related to testing the motor unit--------------------------------------------------
+
 
 /*!
  *  @brief  Tests the function of the encoder
@@ -177,6 +164,20 @@ int MotorUnit::test(){
     
 }
 
+
+//---------------------Functions related to the motor unit's position interface-------------------------------------
+
+
+/*!
+ *  @brief  Resets the axis position to zero
+ */
+void MotorUnit::zero(){
+    angleTotal = 0;
+    
+    angleCurrent  = angleSensor->getRawRotation();
+    anglePrevious = angleSensor->getRawRotation();
+}
+
 /*!
  *  @brief  Sets the target location
  */
@@ -189,6 +190,17 @@ int MotorUnit::setTarget(double newTarget){
  */
 double MotorUnit::getTarget(){
     return setpoint;
+}
+
+/*!
+ *  @brief  Sets the position of the cable
+ */
+int MotorUnit::setPosition(double newPosition){
+    
+    angleCurrent  = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
+    anglePrevious = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
+    
+    angleTotal = newPosition*16384;
 }
 
 /*!
@@ -206,63 +218,6 @@ double MotorUnit::getCurrent(){
 }
 
 /*!
- *  @brief  Sets the position of the cable
- */
-int MotorUnit::setPosition(double newPosition){
-    
-    angleCurrent  = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
-    anglePrevious = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
-    
-    angleTotal = newPosition*16384;
-}
-
-/*!
- *  @brief  Stops the motor
- */
-void MotorUnit::stop(){
-    motor->stop();
-}
-
-/*!
- *  @brief  Runs the motor out at full speed
- */
-void MotorUnit::fullOut(){
-    motor->fullOut();
-}
-
-/*!
- *  @brief  Reads the encoder value and updates it's position
- */
-void MotorUnit::updateEncoderPosition(){
-    angleCurrent = angleSensor->getRawRotation();
-    angleSensor->AbsoluteAngleRotation(&angleTotal, &angleCurrent, &anglePrevious);
-}
-
-/*!
- *  @brief  Recomputes the PID and drives the output
- */
-int MotorUnit::recomputePID(){
-    
-    updateEncoderPosition();
-    
-    //Read the motor current and check for stalls
-    double currentNow = getCurrent();
-    if(currentNow > _stallCurrent){
-        _stallCount = _stallCount + 1;
-    }
-    else{
-        _stallCount = 0;
-    }
-    // if(_stallCount > _stallThreshold){
-        // _webPrint(currentNow);
-    // }
-    
-    int commandSpeed = pid->getOutput(getPosition(),setpoint);
-    
-    motor->runAtPWM(commandSpeed);
-}
-
-/*!
  *  @brief  Computes and returns the error in the axis positioning
  */
 double MotorUnit::getError(){
@@ -274,42 +229,72 @@ double MotorUnit::getError(){
 }
 
 /*!
- *  @brief  Sets the motor to comply with how it is being pulled
+ *  @brief  Stops the motor
  */
-void MotorUnit::repeatabilityTest(){
+void MotorUnit::stop(){
+    motor->stop();
+}
+
+/*!
+ *  @brief  Runs the motor out at full speed...where is this used? Why is it not symmetric with a fullIn() option?
+ */
+void MotorUnit::fullOut(){
+    motor->fullOut();
+}
+
+//---------------------Functions related to maintaining the PID controllers-----------------------------------------
+
+
+
+/*!
+ *  @brief  Reads the encoder value and updates it's position and measures the velocity since the last call
+ */
+void MotorUnit::updateEncoderPosition(){
+    long oldAngleTotal = angleTotal;
+
+    angleCurrent = angleSensor->getRawRotation();
+    angleSensor->AbsoluteAngleRotation(&angleTotal, &angleCurrent, &anglePrevious);
     
-    //Start off from a known location
-    setPosition(0);
-    setTarget(0);
+}
+
+/*!
+ *  @brief  Recomputes the PID and drives the output
+ */
+double MotorUnit::recomputePID(){
     
-    while(true){
-        
-        if(abs(getError()) <.05){
-            if(getTarget() == 0){
-                
-                //Pause to rest and check alignment
-                unsigned long time = millis();
-                unsigned long elapsedTime = millis()-time;
-                while(elapsedTime < 5000){
-                    elapsedTime = millis()-time;
-                    recomputePID();
-                }
-                setTarget(400);
-            }
-            else{
-                setTarget(0);
-            }
-        }
-        
-        unsigned long time = millis();
-        unsigned long elapsedTime = millis()-time;
-        while(elapsedTime < 10){
-            elapsedTime = millis()-time;
-            recomputePID();
-        }
-        
-        Serial.println(getError());
+    updateEncoderPosition();
+    
+
+    //Read the motor current and check for stalls
+    double currentNow = getCurrent();
+    if(currentNow > _stallCurrent){
+        _stallCount = _stallCount + 1;
     }
+    else{
+        _stallCount = 0;
+    }
+    if(_stallCount > _stallThreshold){
+        _webPrint(currentNow);
+        _stallCount = 0;
+    }
+    
+    double commandPWM = 10*positionPID->getOutput(getPosition(),setpoint);
+
+    if(commandPWM > 0){
+        commandPWM = commandPWM + 7000;
+    }
+
+    if(commandPWM > 65530){
+        commandPWM = 65530;
+    }
+
+    motor->runAtPWM(commandPWM);
+
+    return commandPWM;
+}
+
+void MotorUnit::sendVoltage(double voltage){
+    motor->runAtPWM(voltage);
 }
 
 /*!
@@ -337,39 +322,42 @@ bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, doubl
     float positionNow = getPosition();
     float distMoved = positionNow - *lastPosition;
     
-    if( distMoved > .01){
+
+    //If the belt is moving out, let's keep it moving out
+    if( distMoved > .04){
         //Increment the target
         setTarget(positionNow + *amtToMove);
         
-        *amtToMove = *amtToMove + 0.1;
+        *amtToMove = *amtToMove + 1;
         
         *amtToMove = min(*amtToMove, maxSpeed);
         
         //Reset the last moved counter
         *timeLastMoved = millis();
-        
-        *lastPosition = positionNow;
-        
-    }else{
-        
-        //Prevent creep if the position is slightly overshot and there is no pulling force
-        if(getTarget() > getPosition()){
-            setTarget(getPosition());
-        }
-        *amtToMove = *amtToMove/2;  //Spool down...this leaves some slack in the cable
-        
-        //Don't allow position to go too negative which makes it hard to start again
-        if(distMoved < -0.05){
-            *lastPosition = positionNow + 0.05;
-        }
-        
-        //If we haven't moved in more time than the threshold then return
-        if(millis()-*timeLastMoved > 5000){
-            return false;
-        }
+    
+    //If the belt is moving in we need to stop it from moving in
+    }else if(distMoved < -.04){
+        *amtToMove = 0;
+        setTarget(positionNow + .1);
+        stop();
+    }
+    //Finally if the belt is not moving we want to spool things down
+    else{
+        *amtToMove = *amtToMove / 2;
+        setTarget(positionNow);
+        stop();
     }
     
-    return true;
+
+    *lastPosition = positionNow;
+
+    //Return indicates if we have moved within the timeout threshold
+    if(millis()-*timeLastMoved > 5000){
+        return false;
+    }
+    else{
+        return true;
+    }
 }
 
 /*!
@@ -377,8 +365,8 @@ bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, doubl
  */
 bool MotorUnit::retract(double targetLength){
     
-    int currentThreshold = 18;
-    
+    Serial.println("Retracting");
+    int currentThreshold = 14;
     //Start pulling
     motor->fullIn();
     
@@ -430,11 +418,6 @@ bool MotorUnit::retract(double targetLength){
                     unsigned long elapsedTime = millis()-time;
                     while(elapsedTime < 50){
                         elapsedTime = millis()-time;
-                        
-                        //Do linearizion if we are at constant speed
-                        // if(amtToMove > 10){
-                            // linearize(&lastAngle, &lastTime, &transitionTime);
-                        // }
                     }
                 }
                 
@@ -442,7 +425,7 @@ bool MotorUnit::retract(double targetLength){
                 setTarget(targetLength);
                 time = millis();
                 elapsedTime = millis()-time;
-                while(elapsedTime < 2000){
+                while(elapsedTime < 500){
                     elapsedTime = millis()-time;
                     recomputePID();
                 }
@@ -457,34 +440,6 @@ bool MotorUnit::retract(double targetLength){
     }
 }
 
-/*!
- *  @brief  Linearizes the internal encoder
- */
-void MotorUnit::linearize(double *lastAngle, unsigned long *lastTime, int *transitionTime){
-    
-    double currentAngle = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
-    
-    if(*lastAngle > 200.0 && currentAngle < 100.0){
-        *transitionTime = micros() - *lastTime;
-        *lastTime = micros();
-    }
-    
-    if(*transitionTime > 200){
-        double expectedAngle = 360.0*((double)(micros() - *lastTime) / (double) *transitionTime);
-        
-        Serial.print(" * ");
-        Serial.print(currentAngle);
-        Serial.print(", ");
-        Serial.print(expectedAngle);
-        Serial.print(", ");
-        Serial.print(micros() - *lastTime);
-        // Serial.print(", ");
-        // Serial.print(currentAngle - expectedAngle);
-        Serial.println(" ");
-    }
-    
-    *lastAngle = currentAngle;
-}
 
 
 
