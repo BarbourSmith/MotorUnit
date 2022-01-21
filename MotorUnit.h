@@ -37,13 +37,12 @@ public:
     double getCurrent();
     double getPosition();
     void stop();
-    void recomputePID();
+    double recomputePID();
     int  recomputeVelocityPID();
     void updateEncoderPosition();
     void decompressBelt();
     void fullOut();
-    void setVelocityTarget(double newVelocity);
-    double getVelocity();
+    void sendVoltage(double voltage);
 
 private:
 
@@ -51,14 +50,9 @@ private:
     double lastInterval = 0.001;
     unsigned long lastUpdate = millis();
 
-    double p = 15;  //15 These are the new motor tuning values
-    double i = .01;   //0.01
-    double d = 100;  //100
-
-
-    double pv = 700; //700
-    double iv = 10;    //10
-    double dv = 1500; //1500
+    double p = 1500; //1000
+    double i = 20; //50
+    double d = 0; //2500
 
     bool disabled = false;
 
@@ -70,16 +64,12 @@ private:
     long angleTotal = 0;
     long angleCurrent  = 0;
     long anglePrevious = 0;
-
-    unsigned long timeLastEncoderRead = 0; //In microseconds
-    double velocity = 0;
-    double velocitySetpoint = 0;
     
-    int _stallThreshold = 20; //The number of times in a row needed to trigger a warning
-    int _stallCurrent = 26;  //The current threshold needed to count
+    int _stallThreshold = 25; //The number of times in a row needed to trigger a warning
+    int _stallCurrent = 27;  //The current threshold needed to count
     int _stallCount = 0;
     void (*_webPrint) (double arg1);
-    int removeDeadband(int commandPWM);
+    double removeDeadband(double commandPWM);
 
 };
 

@@ -26,10 +26,7 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
                void (*webPrint) (double arg1)){
     _mmPerRevolution = 44;
     positionPID.reset(new MiniPID(p,i,d));
-    positionPID->setOutputLimits(-65,65);
-
-    velocityPID.reset(new MiniPID(pv,iv,dv));
-    velocityPID->setOutputLimits(-65534,65534);
+    positionPID->setOutputLimits(-6553,6553);
 
     motor.reset(new DRV8873LED(tlc, forwardPin, backwardPin, readbackPin));
     angleSensor.reset(new AS5048A(angleCS));
@@ -245,18 +242,6 @@ void MotorUnit::fullOut(){
     motor->fullOut();
 }
 
-
-//---------------------Functions related to the motor unit's velocity interface-------------------------------------
-//Negative velocity is when the belt is moving in
-
-void MotorUnit::setVelocityTarget(double newVelocity){
-    velocitySetpoint = newVelocity;
-}
-
-double MotorUnit::getVelocity(){
-    return velocity;
-}
-
 //---------------------Functions related to maintaining the PID controllers-----------------------------------------
 
 
@@ -269,22 +254,13 @@ void MotorUnit::updateEncoderPosition(){
 
     angleCurrent = angleSensor->getRawRotation();
     angleSensor->AbsoluteAngleRotation(&angleTotal, &angleCurrent, &anglePrevious);
-
-    unsigned long timeNow = micros();
-    double elapsedTime = timeNow - timeLastEncoderRead;
-    timeLastEncoderRead = timeNow;
-
-    //This filters the velocity because it can be quite noisy due to mechanical issues and time quantization
-    double instantVelocity = (-1.0*(((oldAngleTotal/16384.0) - (angleTotal/16384.0))/(elapsedTime/60000000)));
-    double alpha = .1;
-    velocity = (alpha * instantVelocity) + ((1.0 - alpha) * velocity);
     
 }
 
 /*!
  *  @brief  Recomputes the PID and drives the output
  */
-void MotorUnit::recomputePID(){
+double MotorUnit::recomputePID(){
     
     updateEncoderPosition();
     
@@ -297,108 +273,28 @@ void MotorUnit::recomputePID(){
     else{
         _stallCount = 0;
     }
-    // if(_stallCount > _stallThreshold){
-        // _webPrint(currentNow);
-    // }
-    
-    
-    velocitySetpoint = positionPID->getOutput(getPosition(),setpoint);
-
-
-    int commandPWM = velocityPID->getOutput(velocity,velocitySetpoint);
-    
-    motor->runAtPWM(commandPWM);
-}
-
-int MotorUnit::removeDeadband(int commandPWM){
-    if(commandPWM != 0){
-
-        if(commandPWM > 0){
-            int deadBand = 3000;
-            int max = 65535;
-            float scaleFactor = float(max-deadBand)/float(max);
-
-            int scaledPWM = scaleFactor*float(commandPWM) + deadBand;
-            
-            //Make sure full range is possible for steady state off
-            if(scaledPWM > max - 10){
-                scaledPWM = max;
-            }
-
-            return scaledPWM;
-        }
-        else{
-            int deadBand = -12000;
-            int max = -65535;
-            float scaleFactor = float(max-deadBand)/float(max);
-
-            int scaledPWM = scaleFactor*float(commandPWM) + deadBand;
-            
-            //Make sure full range is possible for steady state off
-            if(scaledPWM < max + 10){
-                scaledPWM = max;
-            }
-
-            return scaledPWM;
-        }
-
+    if(_stallCount > _stallThreshold){
+        _webPrint(currentNow);
+        _stallCount = 0;
     }
-    return 0; //Return zero when commanded 0
-}
-
-int MotorUnit::recomputeVelocityPID(){
-    updateEncoderPosition();
     
-    int commandPWM = velocityPID->getOutput(velocity,velocitySetpoint);
+    double commandPWM = 10*positionPID->getOutput(getPosition(),setpoint);
 
-    // Serial.println("-------");
+    if(commandPWM > 0){
+        commandPWM = commandPWM + 7000;
+    }
 
-    // Serial.println(velocityPID->getOutput(0,10));
-    // Serial.println(velocityPID->getOutput(0,-10));
+    if(commandPWM > 65530){
+        commandPWM = 65530;
+    }
 
-    motor->runAtPWM(removeDeadband(commandPWM));
+    motor->runAtPWM(commandPWM);
+
     return commandPWM;
 }
 
-//---------------------Functions related to extending the axis and the calibration process--------------------------
-
-/*!
- *  @brief  Sets the motor to comply with how it is being pulled
- */
-void MotorUnit::repeatabilityTest(){
-    
-    //Start off from a known location
-    setPosition(0);
-    setTarget(0);
-    
-    while(true){
-        
-        if(abs(getError()) <.05){
-            if(getTarget() == 0){
-                
-                //Pause to rest and check alignment
-                unsigned long time = millis();
-                unsigned long elapsedTime = millis()-time;
-                while(elapsedTime < 5000){
-                    elapsedTime = millis()-time;
-                    recomputePID();
-                }
-                setTarget(400);
-            }
-            else{
-                setTarget(0);
-            }
-        }
-        
-        unsigned long time = millis();
-        unsigned long elapsedTime = millis()-time;
-        while(elapsedTime < 10){
-            elapsedTime = millis()-time;
-            recomputePID();
-        }
-        
-        Serial.println(getError());
-    }
+void MotorUnit::sendVoltage(double voltage){
+    motor->runAtPWM(voltage);
 }
 
 /*!
@@ -426,7 +322,9 @@ bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, doubl
     float positionNow = getPosition();
     float distMoved = positionNow - *lastPosition;
     
-    if( distMoved > .02){
+
+    //If the belt is moving out, let's keep it moving out
+    if( distMoved > .04){
         //Increment the target
         setTarget(positionNow + *amtToMove);
         
@@ -436,29 +334,30 @@ bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, doubl
         
         //Reset the last moved counter
         *timeLastMoved = millis();
-        
-        *lastPosition = positionNow;
-        
-    }else{
-        
-        //Prevent creep if the position is slightly overshot and there is no pulling force
-        if(getTarget() > getPosition()){
-            setTarget(getPosition());
-        }
-        *amtToMove = *amtToMove/2;  //Spool down...this leaves some slack in the cable
-        
-        //Don't allow position to go too negative which makes it hard to start again
-        if(distMoved < -0.05){
-            *lastPosition = positionNow + 0.05;
-        }
-        
-        //If we haven't moved in more time than the threshold then return
-        if(millis()-*timeLastMoved > 5000){
-            return false;
-        }
+    
+    //If the belt is moving in we need to stop it from moving in
+    }else if(distMoved < -.04){
+        *amtToMove = 0;
+        setTarget(positionNow + .1);
+        stop();
+    }
+    //Finally if the belt is not moving we want to spool things down
+    else{
+        *amtToMove = *amtToMove / 2;
+        setTarget(positionNow);
+        stop();
     }
     
-    return true;
+
+    *lastPosition = positionNow;
+
+    //Return indicates if we have moved within the timeout threshold
+    if(millis()-*timeLastMoved > 5000){
+        return false;
+    }
+    else{
+        return true;
+    }
 }
 
 /*!
@@ -466,8 +365,8 @@ bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, doubl
  */
 bool MotorUnit::retract(double targetLength){
     
-    int currentThreshold = 18;
-    
+    Serial.println("Retracting");
+    int currentThreshold = 14;
     //Start pulling
     motor->fullIn();
     
@@ -526,7 +425,7 @@ bool MotorUnit::retract(double targetLength){
                 setTarget(targetLength);
                 time = millis();
                 elapsedTime = millis()-time;
-                while(elapsedTime < 2000){
+                while(elapsedTime < 500){
                     elapsedTime = millis()-time;
                     recomputePID();
                 }
