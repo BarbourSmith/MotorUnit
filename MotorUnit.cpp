@@ -23,7 +23,7 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
                uint8_t backwardPin,
                adc1_channel_t readbackPin,
                byte angleCS,
-               void (*webPrint) (double arg1)){
+               void (*webPrint) (uint8_t client, const char* format, ...)){
     _mmPerRevolution = 44;
     positionPID.reset(new MiniPID(p,i,d));
     positionPID->setOutputLimits(-6553,6553);
@@ -274,7 +274,7 @@ double MotorUnit::recomputePID(){
         _stallCount = 0;
     }
     if(_stallCount > _stallThreshold){
-        _webPrint(currentNow);
+        _webPrint(0xFF,"Stalled at current: %f", currentNow);
         _stallCount = 0;
     }
     
@@ -366,7 +366,10 @@ bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, doubl
 bool MotorUnit::retract(double targetLength){
     
     Serial.println("Retracting");
-    int currentThreshold = 14;
+    int absoluteCurrentThreshold = 14;
+    int incrementalThreshold = 4;
+    float alpha = .02;
+    float baseline = 6;
     //Start pulling
     motor->fullIn();
     
@@ -383,9 +386,17 @@ bool MotorUnit::retract(double targetLength){
         
         updateEncoderPosition();
         //When taught
-        if(motor->readCurrent() > currentThreshold){
+        int currentMeasurement = motor->readCurrent();
+
+        _webPrint(0xFF,"Current: %i, Baseline: %f, difference: %f \n", currentMeasurement, baseline, currentMeasurement - baseline);
+        baseline = alpha * float(currentMeasurement) + (1-alpha) * baseline;
+
+        if(currentMeasurement - baseline > incrementalThreshold){
+            _webPrint(0xFF,"Dynamic threshold hit\n");
+        }
+
+        if(currentMeasurement > absoluteCurrentThreshold || currentMeasurement - baseline > incrementalThreshold){
             motor->stop();
-            _webPrint(getPosition());
             zero();
             
             //If we hit the current limit immediately because there wasn't any slack we will extend

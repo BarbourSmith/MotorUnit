@@ -19,7 +19,7 @@ public:
                uint8_t backwardPin,
                adc1_channel_t readbackPin,
                byte angleCS,
-               void (*webPrint) (double arg1));
+               void (*webPrint) (uint8_t client, const char* format, ...));
     std::unique_ptr<MiniPID> positionPID;
     std::unique_ptr<MiniPID> velocityPID;
     std::unique_ptr<DRV8873LED> motor;
@@ -68,7 +68,7 @@ private:
     int _stallThreshold = 25; //The number of times in a row needed to trigger a warning
     int _stallCurrent = 27;  //The current threshold needed to count
     int _stallCount = 0;
-    void (*_webPrint) (double arg1);
+    void (*_webPrint) (uint8_t client, const char* format, ...);
     double removeDeadband(double commandPWM);
 
 };
