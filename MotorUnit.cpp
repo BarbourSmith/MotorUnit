@@ -274,7 +274,7 @@ double MotorUnit::recomputePID(){
         _stallCount = 0;
     }
     if(_stallCount > _stallThreshold){
-        _webPrint(0xFF,"Stalled at current: %f", currentNow);
+        _webPrint(0xFF,"Stalled at current: %f\n", currentNow);
         _stallCount = 0;
     }
     
@@ -376,7 +376,7 @@ bool MotorUnit::retract(double targetLength){
     //Add a delay to wait for the inrush current to pass
     unsigned long time = millis();
     unsigned long elapsedTime = millis()-time;
-    while(elapsedTime < 100){
+    while(elapsedTime < 75){
         elapsedTime = millis()-time;
         updateEncoderPosition();
     }
@@ -388,7 +388,7 @@ bool MotorUnit::retract(double targetLength){
         //When taught
         int currentMeasurement = motor->readCurrent();
 
-        _webPrint(0xFF,"Current: %i, Baseline: %f, difference: %f \n", currentMeasurement, baseline, currentMeasurement - baseline);
+       // _webPrint(0xFF,"Current: %i, Baseline: %f, difference: %f \n", currentMeasurement, baseline, currentMeasurement - baseline);
         baseline = alpha * float(currentMeasurement) + (1-alpha) * baseline;
 
         if(currentMeasurement - baseline > incrementalThreshold){
