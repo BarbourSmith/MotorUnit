@@ -25,6 +25,7 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
                byte angleCS,
                void (*webPrint) (uint8_t client, const char* format, ...)){
     _mmPerRevolution = 44;
+    _axisID = forwardPin;
     positionPID.reset(new MiniPID(p,i,d));
     positionPID->setOutputLimits(-6553,6553);
 
@@ -200,7 +201,7 @@ int MotorUnit::setPosition(double newPosition){
     angleCurrent  = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
     anglePrevious = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
     
-    angleTotal = newPosition*16384;
+    angleTotal = (newPosition*16384)/_mmPerRevolution;
 }
 
 /*!
@@ -274,7 +275,21 @@ double MotorUnit::recomputePID(){
         _stallCount = 0;
     }
     if(_stallCount > _stallThreshold){
-        _webPrint(0xFF,"Stalled at current: %f\n", currentNow);
+        if(_axisID == 1){    
+            _webPrint(0xFF,"BR stalled at current: %f\n", currentNow);
+        }
+        else if(_axisID == 3){    
+            _webPrint(0xFF,"TR stalled at current: %f\n", currentNow);
+        }
+        else if(_axisID == 7){    
+            _webPrint(0xFF,"BL stalled at current: %f\n", currentNow);
+        }
+        else if(_axisID == 9){    
+            _webPrint(0xFF,"TL stalled at current: %f\n", currentNow);
+        }
+        else{    
+            _webPrint(0xFF,"%i stalled at current: %f\n",_axisID, currentNow);
+        }
         _stallCount = 0;
     }
     
@@ -366,10 +381,10 @@ bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, doubl
 bool MotorUnit::retract(double targetLength){
     
     Serial.println("Retracting");
-    int absoluteCurrentThreshold = 14;
-    int incrementalThreshold = 4;
+    int absoluteCurrentThreshold = 5;
+    int incrementalThreshold = 3;
     float alpha = .02;
-    float baseline = 6;
+    float baseline = 3;
     //Start pulling
     motor->fullIn();
     
@@ -397,6 +412,10 @@ bool MotorUnit::retract(double targetLength){
 
         if(currentMeasurement > absoluteCurrentThreshold || currentMeasurement - baseline > incrementalThreshold){
             motor->stop();
+
+            //Print how much the length of the belt changed compared to memory
+            _webPrint(0xFF,"Belt position after retract: %f\n", getPosition());
+
             zero();
             
             //If we hit the current limit immediately because there wasn't any slack we will extend

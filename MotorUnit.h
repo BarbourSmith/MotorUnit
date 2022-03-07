@@ -51,7 +51,7 @@ private:
     unsigned long lastUpdate = millis();
 
     double p = 1500; //1000
-    double i = 20; //50
+    double i = 12; //50
     double d = 0; //2500
 
     bool disabled = false;
@@ -68,6 +68,7 @@ private:
     int _stallThreshold = 25; //The number of times in a row needed to trigger a warning
     int _stallCurrent = 27;  //The current threshold needed to count
     int _stallCount = 0;
+    int _axisID = 0; //A number used to identify which axis this is...is the forward pin
     void (*_webPrint) (uint8_t client, const char* format, ...);
     double removeDeadband(double commandPWM);
 
