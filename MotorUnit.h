@@ -50,8 +50,8 @@ private:
     double lastInterval = 0.001;
     unsigned long lastUpdate = millis();
 
-    double p = 1500; //1000
-    double i = 12; //50
+    double p = 2600; //1000
+    double i = 10; //50
     double d = 0; //2500
 
     bool disabled = false;

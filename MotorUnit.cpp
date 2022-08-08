@@ -381,10 +381,10 @@ bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, doubl
 bool MotorUnit::retract(double targetLength){
     
     Serial.println("Retracting");
-    int absoluteCurrentThreshold = 5;
+    int absoluteCurrentThreshold = 26;
     int incrementalThreshold = 3;
     float alpha = .02;
-    float baseline = 3;
+    float baseline = 23;
     //Start pulling
     motor->fullIn();
     
@@ -403,7 +403,7 @@ bool MotorUnit::retract(double targetLength){
         //When taught
         int currentMeasurement = motor->readCurrent();
 
-       // _webPrint(0xFF,"Current: %i, Baseline: %f, difference: %f \n", currentMeasurement, baseline, currentMeasurement - baseline);
+        _webPrint(0xFF,"Current: %i, Baseline: %f, difference: %f \n", currentMeasurement, baseline, currentMeasurement - baseline);
         baseline = alpha * float(currentMeasurement) + (1-alpha) * baseline;
 
         if(currentMeasurement - baseline > incrementalThreshold){
