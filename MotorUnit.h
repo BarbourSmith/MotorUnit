@@ -50,9 +50,9 @@ private:
     double lastInterval = 0.001;
     unsigned long lastUpdate = millis();
 
-    double p = 2600; //1000
-    double i = 10; //50
-    double d = 0; //2500
+    double p = 1600; //2600
+    double i = 10; //10
+    double d = 0; //0
 
     bool disabled = false;
 
@@ -66,7 +66,7 @@ private:
     long anglePrevious = 0;
     
     int _stallThreshold = 25; //The number of times in a row needed to trigger a warning
-    int _stallCurrent = 27;  //The current threshold needed to count
+    int _stallCurrent = 27;   //The current threshold needed to count
     int _stallCount = 0;
     int _axisID = 0; //A number used to identify which axis this is...is the forward pin
     void (*_webPrint) (uint8_t client, const char* format, ...);
