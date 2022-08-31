@@ -384,21 +384,21 @@ bool MotorUnit::retract(double targetLength){
     int absoluteCurrentThreshold = 26;
     int incrementalThreshold = 3;
     float alpha = .02;
-    float baseline = 23;
-    //Start pulling
-    motor->fullIn();
-    
-    //Add a delay to wait for the inrush current to pass
+    float baseline = 16;
+
+    uint16_t speed = 25000;
+
+    //Keep track of the elapsed time
     unsigned long time = millis();
     unsigned long elapsedTime = millis()-time;
-    while(elapsedTime < 75){
-        elapsedTime = millis()-time;
-        updateEncoderPosition();
-    }
     
     //Pull until taught
     while(true){
         
+        //Gradually increase the pulling speed
+        speed = min(speed + 50, 65535);
+        motor->backward(speed);
+
         updateEncoderPosition();
         //When taught
         int currentMeasurement = motor->readCurrent();
@@ -420,7 +420,7 @@ bool MotorUnit::retract(double targetLength){
             
             //If we hit the current limit immediately because there wasn't any slack we will extend
             elapsedTime = millis()-time;
-            if(elapsedTime < 500){
+            if(elapsedTime < 1500){
                 
                 //Extend some belt to get things started
                 decompressBelt();
