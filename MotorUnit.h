@@ -26,6 +26,7 @@ public:
     std::unique_ptr<AS5048A> angleSensor;
     void zero();
     bool testEncoder();
+    int readAngle();
     int test();
     int setTarget(double newTarget);
     int setPosition(double newPosition);

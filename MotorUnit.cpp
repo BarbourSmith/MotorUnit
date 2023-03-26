@@ -180,6 +180,13 @@ void MotorUnit::zero(){
 }
 
 /*!
+ *  @brief  Read the angle directly from the sensor, useful for testing
+ */
+int MotorUnit::readAngle(){
+    return angleSensor->getRawRotation();
+}
+
+/*!
  *  @brief  Sets the target location
  */
 int MotorUnit::setTarget(double newTarget){
@@ -275,21 +282,21 @@ double MotorUnit::recomputePID(){
         _stallCount = 0;
     }
     if(_stallCount > _stallThreshold){
-        if(_axisID == 1){    
-            _webPrint(0xFF,"BR stalled at current: %f\n", currentNow);
-        }
-        else if(_axisID == 3){    
-            _webPrint(0xFF,"TR stalled at current: %f\n", currentNow);
-        }
-        else if(_axisID == 7){    
-            _webPrint(0xFF,"BL stalled at current: %f\n", currentNow);
-        }
-        else if(_axisID == 9){    
-            _webPrint(0xFF,"TL stalled at current: %f\n", currentNow);
-        }
-        else{    
-            _webPrint(0xFF,"%i stalled at current: %f\n",_axisID, currentNow);
-        }
+        // if(_axisID == 1){    
+        //     _webPrint(0xFF,"BR stalled at current: %f\n", currentNow);
+        // }
+        // else if(_axisID == 3){    
+        //     _webPrint(0xFF,"TR stalled at current: %f\n", currentNow);
+        // }
+        // else if(_axisID == 7){    
+        //     _webPrint(0xFF,"BL stalled at current: %f\n", currentNow);
+        // }
+        // else if(_axisID == 9){    
+        //     _webPrint(0xFF,"TL stalled at current: %f\n", currentNow);
+        // }
+        // else{    
+        //     _webPrint(0xFF,"%i stalled at current: %f\n",_axisID, currentNow);
+        // }
         _stallCount = 0;
     }
     
@@ -382,7 +389,7 @@ bool MotorUnit::retract(double targetLength){
     
     Serial.println("Retracting");
     int absoluteCurrentThreshold = 26;
-    int incrementalThreshold = 3;
+    int incrementalThreshold = 8;
     float alpha = .02;
     float baseline = 16;
 
