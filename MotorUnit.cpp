@@ -302,6 +302,41 @@ double MotorUnit::recomputePID(){
     
     double commandPWM = 10*positionPID->getOutput(getPosition(),setpoint);
 
+    int currentMeasurement = motor->readCurrent();
+
+    if(abs(getPosition() - setpoint ) > 5){
+        _numPosErrors = _numPosErrors + 1;
+
+        if(_numPosErrors > 2){
+            if(_axisID == 1){    
+                _webPrint(0xFF,"BR position error of %fmm ", getPosition() - setpoint);
+                _webPrint(0xFF,"BR current draw %i ", currentMeasurement);
+                _webPrint(0xFF,"BR PID output %f\n", commandPWM);
+            }
+            else if(_axisID == 3){
+                _webPrint(0xFF,"TR position error of %fmm ", getPosition() - setpoint);
+                _webPrint(0xFF,"TR current draw %i ", currentMeasurement);
+                _webPrint(0xFF,"TR PID output %f\n", commandPWM);
+            }
+            else if(_axisID == 7){
+                _webPrint(0xFF,"BL position error of %fmm ", getPosition() - setpoint);
+                _webPrint(0xFF,"BL current draw %i ", currentMeasurement);
+                _webPrint(0xFF,"BL PID output %f\n", commandPWM);
+            }
+            else if(_axisID == 9){
+                _webPrint(0xFF,"TL position error of %fmm ", getPosition() - setpoint);
+                _webPrint(0xFF,"TL current draw %i ", currentMeasurement);
+                _webPrint(0xFF,"TL PID output %f\n", commandPWM);
+            }
+            else{
+                _webPrint(0xFF,"%i position error of %fmm\n",_axisID, getPosition() - setpoint);
+            }
+        }
+    }
+    else{
+        _numPosErrors = 0;
+    }
+
     if(commandPWM > 0){
         commandPWM = commandPWM + 7000;
     }

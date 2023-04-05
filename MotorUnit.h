@@ -72,6 +72,7 @@ private:
     int _axisID = 0; //A number used to identify which axis this is...is the forward pin
     void (*_webPrint) (uint8_t client, const char* format, ...);
     double removeDeadband(double commandPWM);
+    int _numPosErrors = 0; //Keeps track of the number of position errors in a row to detect a stall
 
 };
 
