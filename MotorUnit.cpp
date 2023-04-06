@@ -304,6 +304,11 @@ double MotorUnit::recomputePID(){
 
     int currentMeasurement = motor->readCurrent();
 
+    //Add some monitoring to the top right axis...this can crash the processor because it prints out so much data
+    // if(_axisID == 3){
+    //     _webPrint(0xFF,"TR PID: %f\n", commandPWM);
+    // }
+
     if(abs(getPosition() - setpoint ) > 5){
         _numPosErrors = _numPosErrors + 1;
 
