@@ -26,8 +26,8 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
                void (*webPrint) (uint8_t client, const char* format, ...)){
     _mmPerRevolution = 44;
     _axisID = forwardPin;
-    positionPID.reset(new MiniPID(p,i,d));
-    positionPID->setOutputLimits(-6553,6553);
+    positionPID.reset(new PID(&input, &output, &setpoint,p,i,d, DIRECT));
+    positionPID->SetOutputLimits(-6553,6553);
 
     motor.reset(new DRV8873LED(tlc, forwardPin, backwardPin, readbackPin));
     angleSensor.reset(new AS5048A(angleCS));
@@ -300,7 +300,9 @@ double MotorUnit::recomputePID(){
         _stallCount = 0;
     }
     
-    double commandPWM = 10*positionPID->getOutput(getPosition(),setpoint);
+    input = getPosition();
+    positionPID->Compute();
+    double commandPWM = 10*output; //Why is this scaling by 10 happening? I think this was to fix a bug in the old PID library which as been removed
 
     int currentMeasurement = motor->readCurrent();
 

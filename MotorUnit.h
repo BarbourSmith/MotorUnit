@@ -7,7 +7,7 @@
 #include <TLC59711.h>
 #include "driver/adc.h"
 #include "esp_adc_cal.h"
-#include "MiniPID.h"     //https://github.com/tekdemo/MiniPID
+#include "PID_v1.h"           //https://github.com/br3ttb/Arduino-PID-Library
 #include <DRV8873LED.h>
 #include <AS5048A.h>
 
@@ -20,8 +20,8 @@ public:
                adc1_channel_t readbackPin,
                byte angleCS,
                void (*webPrint) (uint8_t client, const char* format, ...));
-    std::unique_ptr<MiniPID> positionPID;
-    std::unique_ptr<MiniPID> velocityPID;
+    std::unique_ptr<PID> positionPID;
+    std::unique_ptr<PID> velocityPID;
     std::unique_ptr<DRV8873LED> motor;
     std::unique_ptr<AS5048A> angleSensor;
     void zero();
@@ -57,8 +57,9 @@ private:
 
     bool disabled = false;
 
-    int output = 0;
-    double currentState = 0.0;
+    double input = 0;
+    double output = 0;
+    double currentState = 0.0; //Not used? Delete?
     double setpoint = 0.0;
     double errorDist = 0.0;
     
