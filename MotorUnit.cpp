@@ -6,33 +6,38 @@
  ****************************************************/
 #include "MotorUnit.h"
 
+#define TCAADDR 0x70
+
 /*!
  *  @brief  Instantiates a new MotorUnit class. Instantiates classes for
  *          all other necessary controls.
- *  @param  tlc Pointer to a TLC59711 object to output PWM signals
- *  @param  forwardPin Output pin number for the TLC59711. If this pin is at max
+ *  @param  forwardPin Output pin number for the motor controller. If this pin is at max
  *          output and the other pin is at 0 the motor turns forward
- *  @param  backwardPin Output pin number for the TLC59711. If this pin is at
+ *  @param  backwardPin Output pin number for the motor controller. If this pin is at
  *          max output and the other pin is at 0 the motor turns backward
  *  @param  readbackPin ESP32 adc_channel_t pin number for current readback
- *  @param  angleCS ESP32 pin for the chip select of the angle sensor
+ *  @param  encoderNum The number of the encoder on the I2C multiplexer 
  *
  */
-MotorUnit::MotorUnit(TLC59711 *tlc,
-               uint8_t forwardPin,
-               uint8_t backwardPin,
-               adc1_channel_t readbackPin,
-               byte angleCS,
+MotorUnit::MotorUnit(
+               int forwardPin,
+               int backwardPin,
+               int readbackPin,
+               byte encoderNum,
+               int channel1,
+               int channel2,
                void (*webPrint) (uint8_t client, const char* format, ...)){
     _mmPerRevolution = 44;
     _axisID = forwardPin;
-    positionPID.reset(new MiniPID(p,i,d));
-    positionPID->setOutputLimits(-6553,6553);
 
-    motor.reset(new DRV8873LED(tlc, forwardPin, backwardPin, readbackPin));
-    angleSensor.reset(new AS5048A(angleCS));
-    angleSensor->init();
     _webPrint = webPrint;
+
+    _forwardPin = forwardPin;
+    _backwardPin = backwardPin;
+    _readbackPin = readbackPin;
+    _encoderNum = encoderNum;
+    _channel1 = channel1;
+    _channel2 = channel2;
     
     zero();
 }
@@ -40,15 +45,36 @@ MotorUnit::MotorUnit(TLC59711 *tlc,
 //---------------------Functions related to testing the motor unit--------------------------------------------------
 
 
+void MotorUnit::begin(){
+    motor.begin(_forwardPin, _backwardPin, _readbackPin, _channel1, _channel2);
+    selectEncoder();
+    encoder.begin();
+    zero();
+
+    positionPID.reset(new MiniPID(p,i,d));
+    positionPID->setOutputLimits(-1023,1023);
+}
+
+//Used to set the multiplexer to read from the right encoder
+void MotorUnit::selectEncoder() {
+  uint8_t i = _encoderNum;
+  if (i > 7) return;
+ 
+  Wire.beginTransmission(TCAADDR);
+  Wire.write(1 << i);
+  Wire.endTransmission();  
+}
+
 /*!
  *  @brief  Tests the function of the encoder
  */
 bool MotorUnit::testEncoder(){
-    motor->stop();
+    motor.stop();
     
     // Test reading from angle sensor
-    if(angleSensor->getRotation() != 0){
-        Serial.print(angleSensor->getRotation());
+    selectEncoder();
+    if(encoder.isConnected()){
+        Serial.print(encoder.readAngle());
         Serial.println(" -- encoder pass");
         return true;
     }
@@ -68,51 +94,55 @@ int MotorUnit::test(){
     testPass = testEncoder();
     
      // Test writing to motor
-    motor->fullOut();
+    motor.fullOut();
     
     delay(1000);
     
-    if(motor->readCurrent() > 0){
+    if(motor.readCurrent() > 0){
         Serial.print(".");
-        // Serial.print("Direction one nominal at ");
-        // Serial.print(motor->readCurrent());
-        // Serial.println("% current draw");
+        Serial.print("Direction one nominal at ");
+        Serial.print(motor.readCurrent());
+        Serial.println("% current draw");
     }
     else{
         Serial.print("~");
         testPass = false;
-        // Serial.print("Direction one fail at ");
-        // Serial.print(motor->readCurrent());
-        // Serial.println("% current draw");
+        Serial.print("Direction one fail at ");
+        Serial.print(motor.readCurrent());
+        Serial.println("% current draw");
     }
     
     
-    motor->stop();
+    motor.stop();
     
     delay(1000);
     
-    motor->fullIn();
+    motor.fullIn();
     
     delay(1000);
     
-    if(motor->readCurrent() > 0){
+    if(motor.readCurrent() > 0){
         Serial.print(".");
-        // Serial.print("Direction two nominal at ");
-        // Serial.print(motor->readCurrent());
-        // Serial.println("% current draw");
+        Serial.print("Direction two nominal at ");
+        Serial.print(motor.readCurrent());
+        Serial.println("% current draw");
     }
     else{
         Serial.print("~");
         testPass = false;
-        // Serial.print("Direction two fail at ");
-        // Serial.print(motor->readCurrent());
-        // Serial.println("% current draw");
+        Serial.print("Direction two fail at ");
+        Serial.print(motor.readCurrent());
+        Serial.println("% current draw");
     }
     
-    motor->stop();
+    motor.stop();
     
      // Test moving to a commanded position
     zero();
+    Serial.println("Setpoint testing");
+    Serial.println(setpoint);
+    //setpoint = 25;
+    Serial.println(setpoint);
     setTarget(25);
     unsigned long time = millis();
     unsigned long elapsedTime = millis()-time;
@@ -124,14 +154,16 @@ int MotorUnit::test(){
     if(abs(getError()) > .1){
         Serial.print("~");
         testPass = false;
-        // Serial.print("Failed to move to target position with error: ");
-        // Serial.println(getError());
+        Serial.print("Failed to move to target position with error: ");
+        Serial.println(getError());
     }
     else{
         Serial.print(".");
-        // Serial.print("Pass move to target position with error: ");
-        // Serial.println(getError());
+        Serial.print("Pass move to target position with error: ");
+        Serial.println(getError());
     }
+
+    return false;
     
     zero();
     setTarget(-25);
@@ -145,16 +177,16 @@ int MotorUnit::test(){
     if(abs(getError()) > .1){
         Serial.print("~");
         testPass = false;
-        // Serial.print("Failed to move to target position with error: ");
-        // Serial.println(getError());
+        Serial.print("Failed to move to target position with error: ");
+        Serial.println(getError());
     }
     else{
         Serial.print(".");
-        // Serial.print("Pass move to target position with error: ");
-        // Serial.println(getError());
+        Serial.print("Pass move to target position with error: ");
+        Serial.println(getError());
     }
     
-    motor->stop();
+    motor.stop();
     
     if(testPass){
         Serial.println("Pass");
@@ -173,24 +205,25 @@ int MotorUnit::test(){
  *  @brief  Resets the axis position to zero
  */
 void MotorUnit::zero(){
-    angleTotal = 0;
-    
-    angleCurrent  = angleSensor->getRawRotation();
-    anglePrevious = angleSensor->getRawRotation();
+    selectEncoder();
+    encoder.resetCumulativePosition();
 }
 
 /*!
  *  @brief  Read the angle directly from the sensor, useful for testing
  */
 int MotorUnit::readAngle(){
-    return angleSensor->getRawRotation();
+    selectEncoder();
+    return encoder.readAngle();
 }
 
 /*!
  *  @brief  Sets the target location
  */
-int MotorUnit::setTarget(double newTarget){
+void MotorUnit::setTarget(double newTarget){
+    Serial.println("Begin set target");
     setpoint = newTarget;
+    Serial.println("End set target");
 }
 
 /*!
@@ -204,25 +237,24 @@ double MotorUnit::getTarget(){
  *  @brief  Sets the position of the cable
  */
 int MotorUnit::setPosition(double newPosition){
-    
-    angleCurrent  = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
-    anglePrevious = angleSensor->RotationRawToAngle(angleSensor->getRawRotation());
-    
-    angleTotal = (newPosition*16384)/_mmPerRevolution;
+    int angleTotal = (newPosition*4096)/_mmPerRevolution;
+    selectEncoder();
+    encoder.resetCumulativePosition(angleTotal);
 }
 
 /*!
  *  @brief  Reads the current position of the axis
  */
 double MotorUnit::getPosition(){
-    return (angleTotal/16384.0)*_mmPerRevolution;
+    selectEncoder();
+    return (encoder.getCumulativePosition()/4096.0)*_mmPerRevolution*-1;
 }
 
 /*!
  *  @brief  Gets the current motor power draw
  */
 double MotorUnit::getCurrent(){
-    return motor->readCurrent();
+    return motor.readCurrent();
 }
 
 /*!
@@ -240,14 +272,14 @@ double MotorUnit::getError(){
  *  @brief  Stops the motor
  */
 void MotorUnit::stop(){
-    motor->stop();
+    motor.stop();
 }
 
 /*!
  *  @brief  Runs the motor out at full speed...where is this used? Why is it not symmetric with a fullIn() option?
  */
 void MotorUnit::fullOut(){
-    motor->fullOut();
+    motor.fullOut();
 }
 
 //---------------------Functions related to maintaining the PID controllers-----------------------------------------
@@ -258,11 +290,8 @@ void MotorUnit::fullOut(){
  *  @brief  Reads the encoder value and updates it's position and measures the velocity since the last call
  */
 void MotorUnit::updateEncoderPosition(){
-    long oldAngleTotal = angleTotal;
-
-    angleCurrent = angleSensor->getRawRotation();
-    angleSensor->AbsoluteAngleRotation(&angleTotal, &angleCurrent, &anglePrevious);
-    
+    selectEncoder();
+    encoder.getCumulativePosition(); //This updates and returns the encoder value
 }
 
 /*!
@@ -302,7 +331,7 @@ double MotorUnit::recomputePID(){
     
     double commandPWM = 10*positionPID->getOutput(getPosition(),setpoint);
 
-    int currentMeasurement = motor->readCurrent();
+    int currentMeasurement = motor.readCurrent();
 
     //Add some monitoring to the top right axis...this can crash the processor because it prints out so much data
     // if(_axisID == 3){
@@ -350,13 +379,13 @@ double MotorUnit::recomputePID(){
         commandPWM = 65530;
     }
 
-    motor->runAtPWM(commandPWM);
+    motor.runAtPWM(commandPWM);
 
     return commandPWM;
 }
 
 void MotorUnit::sendVoltage(double voltage){
-    motor->runAtPWM(voltage);
+    motor.runAtPWM(voltage);
 }
 
 /*!
@@ -367,7 +396,7 @@ void MotorUnit::decompressBelt(){
     unsigned long elapsedTime = millis()-time;
     while(elapsedTime < 500){
         elapsedTime = millis()-time;
-        motor->fullOut();
+        motor.fullOut();
         updateEncoderPosition();
     }
 }
@@ -428,8 +457,8 @@ bool MotorUnit::comply(unsigned long *timeLastMoved, double *lastPosition, doubl
 bool MotorUnit::retract(double targetLength){
     
     Serial.println("Retracting");
-    int absoluteCurrentThreshold = 26;
-    int incrementalThreshold = 8;
+    int absoluteCurrentThreshold = 8;
+    int incrementalThreshold = 3;
     float alpha = .02;
     float baseline = 16;
 
@@ -444,11 +473,11 @@ bool MotorUnit::retract(double targetLength){
         
         //Gradually increase the pulling speed
         speed = min(speed + 50, 65535);
-        motor->backward(speed);
+        motor.backward(speed);
 
         updateEncoderPosition();
         //When taught
-        int currentMeasurement = motor->readCurrent();
+        int currentMeasurement = motor.readCurrent();
 
         _webPrint(0xFF,"Current: %i, Baseline: %f, difference: %f \n", currentMeasurement, baseline, currentMeasurement - baseline);
         baseline = alpha * float(currentMeasurement) + (1-alpha) * baseline;
@@ -458,7 +487,7 @@ bool MotorUnit::retract(double targetLength){
         }
 
         if(currentMeasurement > absoluteCurrentThreshold || currentMeasurement - baseline > incrementalThreshold){
-            motor->stop();
+            motor.stop();
 
             //Print how much the length of the belt changed compared to memory
             _webPrint(0xFF,"Belt position after retract: %f\n", getPosition());
@@ -485,7 +514,7 @@ bool MotorUnit::retract(double targetLength){
                         
                         //Stop and return
                         setTarget(getPosition());
-                        motor->stop();
+                        motor.stop();
                         
                         return false;
                     }
@@ -507,7 +536,7 @@ bool MotorUnit::retract(double targetLength){
                     recomputePID();
                 }
                 
-                motor->stop();
+                motor.stop();
                 return true;
             }
             else{
